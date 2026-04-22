@@ -23,13 +23,21 @@ else
   echo "   Model: $MODEL_PATH"
   echo "   Type:  $MODEL_TYPE"
 
+cat > config.yaml << EOF
+server:
+  host: "0.0.0.0"
+  port: ${MODEL_PORT}
+
+models:
+  - model_path: ${MODEL_PATH}
+    model_type: ${MODEL_TYPE}
+    served_model_name: gemma-4-26b-vision
+    reasoning_parser: gemma4
+    tool_call_parser: gemma4
+EOF
+
   mlx-openai-server launch \
-    --model-path "$MODEL_PATH" \
-    --model-type "$MODEL_TYPE" \
-    --reasoning-parser gemma4 \
-    --tool-call-parser gemma4 \
-    --port "$MODEL_PORT" \
-    --host 0.0.0.0 \
+    --config config.yaml \
     > "$LOG_DIR/mlx-server.log" 2>&1 &
 
   echo -n "   Waiting for model server"
