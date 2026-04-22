@@ -1,9 +1,9 @@
 # test-mlx-openai-server
 
-MLX-native AI stack na Apple Silicon — szybszy niż Ollama, z vision, Whisper i RAG.
+MLX-native AI stack na Apple Silicon — szybki, lokalny, prywatny.
 
-**Stack:** mlx-openai-server · Gemma 4 26B · Whisper large-v3 · Tika OCR · Open WebUI  
-**Hardware:** MacBook Pro M1 Max 64 GB
+**Hardware:** MacBook Pro M1 Max 64 GB  
+**Model:** Gemma 4 26B MoE · 6-bit · vision ✅ · 256K kontekst
 
 ---
 
@@ -11,48 +11,34 @@ MLX-native AI stack na Apple Silicon — szybszy niż Ollama, z vision, Whisper 
 
 ```
 Mac (natywnie, Metal GPU)
-┌────────────────────────────────────────────┐
-│  mlx-openai-server                         │
-│  Gemma 4 26B 6bit  :8090  vision ✅        │
-│  Whisper large-v3  :8091  audio ✅         │
-└───────────┬────────────────────────────────┘
-            │ HTTP
-Docker      │
-┌───────────▼────────────────────────────────┐
-│  Open WebUI        :3000                   │
-│  PDF/Word/Excel/PowerPoint ✅              │
-│  Tika OCR (skany) :9998   ✅              │
-└────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  mlx_vlm.server    :8090   Gemma 4 Vision   │
+│  mlx-openai-server :8091   Whisper STT      │
+│  open-terminal     :57321  dostęp do plików │
+│  openclaw          :18789  agent autonomiczny│
+└──────────────┬──────────────────────────────┘
+               │ HTTP
+Docker         │
+┌──────────────▼──────────────────────────────┐
+│  Open WebUI   :3000   interfejs czatu        │
+│  SearXNG      :8888   web search            │
+│  Tika OCR     :9998   skany PDF             │
+└─────────────────────────────────────────────┘
 ```
-
-mlx-openai-server rozwiązuje problem wątkowania MLX przez izolację procesów (`spawn`),  
-której brakowało w rapid-mlx. Każdy model działa w osobnym podprocesie z czystym Metal context.
-
----
-
-## Wymagania
-
-- macOS Apple Silicon (M1+)
-- Python 3.11 (instaluje `setup.sh`)
-- Docker Desktop
-- Homebrew
 
 ---
 
 ## Szybki start
 
 ```bash
-# 1. Sklonuj
 git clone https://github.com/jankul02/test-mlx-openai-server.git
 cd test-mlx-openai-server
 
-# 2. Instalacja (~20 GB pobierania modeli)
-./setup.sh
+./setup.sh          # instalacja (~23 GB modeli)
+openclaw onboard    # konfiguracja agenta (jednorazowo)
+# wpisz OPENCLAW_API_KEY w config.sh
 
-# 3. Uruchom wszystko
-./start.sh
-
-# 4. Otwórz przeglądarkę
+./start.sh          # uruchom wszystko
 open http://localhost:3000
 ```
 
@@ -62,62 +48,14 @@ open http://localhost:3000
 
 | Skrypt | Opis |
 |---|---|
-| `config.sh` | Wspólna konfiguracja — modele, porty. Tu zmieniasz model. |
-| `setup.sh` | Jednorazowa instalacja. Bezpieczne do wielokrotnego uruchomienia. |
-| `start.sh` | Start wszystkich serwisów. **Reentrant** — bezpieczne gdy już działa. |
-| `stop.sh` | Stop wszystkich serwisów. **Reentrant** — bezpieczne gdy już zatrzymane. |
-| `testimage.sh` | Test vision — wysyła obraz do modelu. |
-| `testaudio.sh` | Test Whisper — transkrypcja audio. Użycie: `./testaudio.sh plik.mp3` |
-| `monitor.sh` | Live monitoring: status serwisów, tok/s, zużycie pamięci. |
+| `config.sh` | Konfiguracja — modele, porty. **Jedyne miejsce do zmian.** |
+| `setup.sh` | Instalacja zależności. Bezpieczne do wielokrotnego uruchomienia. |
+| `start.sh` | Start wszystkich serwisów. **Reentrant.** |
+| `stop.sh` | Stop wszystkich serwisów. **Reentrant.** |
+| `status.sh` | Szybki przegląd co działa + pamięć + tok/s. |
+| `testimage.sh` | Test vision — wysyła obraz do Gemma 4. |
+| `testaudio.sh` | Test Whisper. Użycie: `./testaudio.sh plik.mp3` |
 | `clean.sh` | Usuwa venv, logi, pliki tymczasowe. |
-
----
-
-## Konfiguracja (`config.sh`)
-
-```zsh
-MODEL_PATH="mlx-community/gemma-4-26b-a4b-it-6bit"
-MODEL_TYPE="multimodal"    # multimodal = vision przez mlx-vlm
-MODEL_PORT=8090
-
-WHISPER_PATH="mlx-community/whisper-large-v3-mlx"
-WHISPER_PORT=8091
-
-WEBUI_PORT=3000
-TIKA_PORT=9998
-```
-
----
-
-## Model
-
-**Gemma 4 26B MoE · 6-bit**
-
-| Właściwość | Wartość |
-|---|---|
-| Rozmiar modelu | ~20 GB |
-| Aktywne parametry | 3.8B (MoE — szybki!) |
-| Kontekst | 256K tokenów |
-| Vision | ✅ obrazy w chacie |
-| Języki | 140+ |
-
-MoE (Mixture of Experts) aktywuje tylko 3.8B z 26B parametrów podczas generowania —  
-co oznacza prędkość porównywalną z modelem 4B przy jakości modelu 26B.
-
----
-
-## Obsługiwane formaty plików
-
-| Format | Jak działa |
-|---|---|
-| PDF (tekstowy) | Tekst wyciągany przez Open WebUI → model |
-| PDF (skan/obraz) | OCR przez Tika → tekst → model |
-| Word (.docx/.doc) | Tekst wyciągany |
-| Excel (.xlsx/.xls) | Komórki wyciągane |
-| PowerPoint (.pptx/.ppt) | Tekst ze slajdów |
-| Obrazy (jpg/png) | Wysyłane bezpośrednio do Gemma 4 vision |
-| Audio (mp3/wav/m4a) | Transkrypcja przez Whisper → tekst → model |
-| URL | Treść strony pobierana i indeksowana |
 
 ---
 
@@ -125,68 +63,141 @@ co oznacza prędkość porównywalną z modelem 4B przy jakości modelu 26B.
 
 | Serwis | URL | Opis |
 |---|---|---|
-| Open WebUI | http://localhost:3000 | Interfejs czatu |
-| MLX server | http://localhost:8090 | Inference modelu |
+| Open WebUI | http://localhost:3000 | Główny interfejs czatu |
+| Gemma 4 Vision | http://localhost:8090 | Inference + vision |
 | Whisper | http://localhost:8091 | Transkrypcja audio |
-| Tika OCR | http://localhost:9998 | OCR skanów |
+| SearXNG | http://localhost:8888 | Web search (prywatny) |
+| Tika OCR | http://localhost:9998 | OCR skanowanych PDF |
+| Open Terminal | http://localhost:57321 | Przeglądanie plików z chatu |
+| OpenClaw | http://localhost:18789 | Autonomiczny agent |
+
+---
+
+## Model
+
+**Gemma 4 26B A4B MoE · 6-bit**
+
+| | |
+|---|---|
+| Rozmiar | ~20 GB |
+| Aktywne parametry | 3.8B (MoE = prędkość 4B, jakość 26B) |
+| Kontekst | 256K tokenów |
+| Vision | ✅ obrazy bezpośrednio w chacie |
+| Języki | 140+ |
+
+---
+
+## Obsługiwane formaty plików
+
+| Format | Jak działa |
+|---|---|
+| PDF (tekstowy) | Tekst → model |
+| PDF (skan) | OCR Tika → tekst → model |
+| Word (.docx/.doc) | Tekst → model |
+| Excel (.xlsx/.xls) | Komórki → model |
+| PowerPoint (.pptx) | Tekst slajdów → model |
+| Obrazy (jpg/png) | Bezpośrednio do Gemma 4 vision |
+| Audio (mp3/wav/m4a) | Whisper → transkrypcja → model |
+| URL | Treść strony → model |
+
+---
+
+## OpenClaw — autonomiczny agent
+
+OpenClaw podłączony do Open WebUI jako dodatkowy model:
+
+```
+Admin Settings → Connections → OpenAI → + Add
+URL:     http://localhost:18789/v1
+API Key: [OPENCLAW_API_KEY z config.sh]
+```
+
+Przykładowe komendy w chacie (wybierz model "openclaw"):
+
+```
+"Sprawdź folder ~/projects/klient-abc/input/ i wypisz dokumenty"
+"Nowa wersja requirements jest w Downloads. Zastąp v1 w projekcie ABC."
+"Stwórz strukturę folderów dla nowego projektu XYZ"
+"Wyszukaj w internecie aktualną wersję specyfikacji OAuth 2.1"
+```
+
+Skills do zainstalowania:
+```bash
+openclaw skills install gtrusler/clawdbot-filesystem  # operacje na plikach
+openclaw skills install steipete/github               # Git/GitHub
+openclaw skills install obsidian                      # notatki Obsidian
+```
+
+---
+
+## Konfiguracja Open WebUI po pierwszym uruchomieniu
+
+**Web Search:**
+```
+Admin Panel → Settings → Web Search
+Engine: SearXNG
+URL: http://host.docker.internal:8888/search?q=<query>&format=json
+```
+
+**Embedding model (lepszy RAG):**
+```
+Admin Panel → Settings → Documents → Embedding Model
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+**RAG chunk size (dla dokumentów technicznych):**
+```
+Chunk Size: 800
+Chunk Overlap: 150
+Top K: 6
+```
 
 ---
 
 ## Przydatne komendy
 
 ```bash
-# Logi na żywo
-tail -f logs/mlx-server.log          # główny serwer
-tail -f logs/whisper.log             # Whisper
-docker logs -f open-webui-mlx        # Open WebUI
+# Status wszystkich serwisów
+./status.sh
 
-# Szybki test tekstowy
-curl http://localhost:8090/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"mlx-community/gemma-4-26b-a4b-it-6bit",
-       "messages":[{"role":"user","content":"cześć"}]}'
+# Logi na żywo
+tail -f logs/gemma.log
+tail -f logs/whisper.log
+tail -f logs/openclaw.log
+docker logs -f open-webui-mlx
+
+# Pełny restart
+./stop.sh && ./start.sh
 
 # Test vision
 ./testimage.sh
 
-# Test audio (Whisper)
-./testaudio.sh nagranie.mp3
+# Test audio
+./testaudio.sh ~/nagranie.mp3
 
 # Test Tika OCR
 curl -T dokument.pdf http://localhost:9998/tika --header "Accept: text/plain"
-
-# Monitoring na żywo
-./monitor.sh
-
-# Pełny restart
-./stop.sh && ./start.sh
 ```
 
 ---
 
-## Dlaczego mlx-openai-server zamiast rapid-mlx
+## Dlaczego mlx_vlm.server zamiast mlx-openai-server dla vision
 
-rapid-mlx używał `asyncio.to_thread()` do obsługi żądań — wątki z puli nie mają Metal GPU stream,  
-co powoduje crash `RuntimeError: There is no Stream(gpu, 1) in current thread`.
+`mlx-openai-server` z `--model-type multimodal` crashuje z `Stream(gpu, 0) in current thread` — ten sam bug MLX co w rapid-mlx (asyncio threading).
 
-mlx-openai-server uruchamia każdy model w osobnym podprocesie przez `multiprocessing.spawn`,  
-dając każdemu czysty Metal context. To poprawne rozwiązanie otwartego bugu Apple (#2133 w ml-explore/mlx).
+`mlx_vlm.server` uruchamia inference na głównym wątku — brak problemu z Metal GPU stream. Vision działa stabilnie.
+
+Szczegóły: [ml-explore/mlx#2133](https://github.com/ml-explore/mlx/issues/2133)
 
 ---
 
-## Usuwanie wszystkiego
+## Usuwanie
 
 ```bash
 ./stop.sh
-
-# Kontenery i dane czatu
-docker rm -f open-webui-mlx tika
+docker rm -f open-webui-mlx tika searxng
 docker volume rm open-webui-mlx
-
-# Cache modeli (~23 GB)
 rm -rf ~/.cache/huggingface/hub/models--mlx-community--gemma-4-26b-a4b-it-6bit
 rm -rf ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-mlx
-
-# venv i logi
 ./clean.sh
 ```

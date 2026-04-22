@@ -1,100 +1,152 @@
 #!/bin/zsh
-# start.sh - start mlx_vlm.server (Gemma-4 Vision 6-bit) + Whisper + Tika + Open WebUI
-# Reentrant: safe to run if any or all services are already running
+# start.sh - uruchamia wszystkie serwisy
+# Reentrant: bezpieczne gdy serwisy już działają
 
 source ./config.sh
 mkdir -p "$LOG_DIR"
+source "$VENV_DIR/bin/activate" 2>/dev/null || {
+  echo "❌ venv nie znaleziony. Uruchom ./setup.sh"
+  exit 1
+}
 
-# ── Helper: is port in use? ──────────────────────────────
 port_in_use() { lsof -i ":$1" -sTCP:LISTEN &>/dev/null }
 
-# ── Activate venv ────────────────────────────────────────
-if [[ ! -d "$VENV_DIR" ]]; then
-  echo "❌ venv not found. Run ./setup.sh first."
-  exit 1
-fi
-source "$VENV_DIR/bin/activate"
+docker_running() { docker ps --format '{{.Names}}' | grep -q "^$1$" }
+docker_exists()  { docker ps -a --format '{{.Names}}' | grep -q "^$1$" }
 
-# ── mlx_vlm.server (Gemma-4 Vision 6-bit) ───────────────
+# ════════════════════════════════════════════════════════
+# 1. GEMMA 4 VISION (mlx_vlm.server)
+# ════════════════════════════════════════════════════════
 if port_in_use $MODEL_PORT; then
-  echo "✅ mlx_vlm.server already running on :${MODEL_PORT}"
+  echo "✅ Gemma 4 Vision już działa na :${MODEL_PORT}"
 else
-  echo "🚀 Starting mlx_vlm.server (Gemma-4 Vision)..."
+  echo "🚀 Uruchamiam Gemma 4 Vision..."
   echo "   Model: $MODEL_PATH"
-  echo "   (6-bit – optimized for M1 Max 64 GB)"
-
   mlx_vlm.server \
-      --model "$MODEL_PATH" \
-      --port "$MODEL_PORT" \
-      --host 0.0.0.0 \
-      > "$LOG_DIR/mlx-server.log" 2>&1 &
+    --model "$MODEL_PATH" \
+    --port "$MODEL_PORT" \
+    --host 0.0.0.0 \
+    > "$LOG_DIR/gemma.log" 2>&1 &
 
-  echo -n "   Waiting for model server"
+  echo -n "   Czekam na gotowość"
   for i in {1..60}; do
-    if curl -s "http://localhost:${MODEL_PORT}/v1/models" &>/dev/null; then
-      echo " ready"
-      break
-    fi
+    curl -s "http://localhost:${MODEL_PORT}/v1/models" &>/dev/null && break
     echo -n "."
     sleep 2
   done
+  echo ""
 
-  if ! port_in_use $MODEL_PORT; then
-    echo ""
-    echo "❌ mlx_vlm.server failed to start."
-    echo "   Check: tail -f $LOG_DIR/mlx-server.log"
+  if port_in_use $MODEL_PORT; then
+    echo "✅ Gemma 4 Vision gotowa na :${MODEL_PORT}"
+  else
+    echo "❌ Gemma 4 nie uruchomiła się. Sprawdź: tail -f $LOG_DIR/gemma.log"
     exit 1
   fi
-  echo "✅ mlx_vlm.server ready on :${MODEL_PORT}"
 fi
 
-# ── Whisper server (mlx-openai-server) ───────────────────
+# ════════════════════════════════════════════════════════
+# 2. WHISPER (mlx-openai-server)
+# ════════════════════════════════════════════════════════
 if port_in_use $WHISPER_PORT; then
-  echo "✅ Whisper already running on :${WHISPER_PORT}"
+  echo "✅ Whisper już działa na :${WHISPER_PORT}"
 else
-  echo "🎙️  Starting Whisper (audio transcription)..."
+  echo "🎙️  Uruchamiam Whisper..."
   mlx-openai-server launch \
     --model-path "$WHISPER_PATH" \
     --model-type whisper \
     --port "$WHISPER_PORT" \
     --host 0.0.0.0 \
     > "$LOG_DIR/whisper.log" 2>&1 &
-
   sleep 5
-  if port_in_use $WHISPER_PORT; then
-    echo "✅ Whisper ready on :${WHISPER_PORT}"
-  else
-    echo "⚠️  Whisper failed to start (non-critical)"
-    echo "   Check: tail -f $LOG_DIR/whisper.log"
-  fi
+  port_in_use $WHISPER_PORT \
+    && echo "✅ Whisper gotowy na :${WHISPER_PORT}" \
+    || echo "⚠️  Whisper nie uruchomił się. Sprawdź: tail -f $LOG_DIR/whisper.log"
 fi
 
-# ── Tika OCR ─────────────────────────────────────────────
-if docker ps --format '{{.Names}}' | grep -q "^${TIKA_CONTAINER}$"; then
-  echo "✅ Tika already running on :${TIKA_PORT}"
-elif docker ps -a --format '{{.Names}}' | grep -q "^${TIKA_CONTAINER}$"; then
-  echo "♻️  Restarting Tika..."
-  docker start "$TIKA_CONTAINER"
-  echo "✅ Tika restarted on :${TIKA_PORT}"
+# ════════════════════════════════════════════════════════
+# 3. SEARXNG (web search — Docker)
+# ════════════════════════════════════════════════════════
+if docker_running $SEARXNG_CONTAINER; then
+  echo "✅ SearXNG już działa na :${SEARXNG_PORT}"
+elif docker_exists $SEARXNG_CONTAINER; then
+  echo "♻️  Restartuję SearXNG..."
+  docker start "$SEARXNG_CONTAINER"
+  echo "✅ SearXNG zrestartowany na :${SEARXNG_PORT}"
 else
-  echo "🐳 Starting Tika (OCR for scanned PDFs)..."
+  echo "🔍 Uruchamiam SearXNG..."
+  docker run -d \
+    --name "$SEARXNG_CONTAINER" \
+    -p "${SEARXNG_PORT}:8080" \
+    --restart always \
+    -e SEARXNG_BASE_URL="http://localhost:${SEARXNG_PORT}" \
+    searxng/searxng:latest
+  echo "✅ SearXNG uruchomiony na :${SEARXNG_PORT}"
+fi
+
+# ════════════════════════════════════════════════════════
+# 4. TIKA OCR (scanned PDFs — Docker)
+# ════════════════════════════════════════════════════════
+if docker_running $TIKA_CONTAINER; then
+  echo "✅ Tika już działa na :${TIKA_PORT}"
+elif docker_exists $TIKA_CONTAINER; then
+  echo "♻️  Restartuję Tika..."
+  docker start "$TIKA_CONTAINER"
+  echo "✅ Tika zrestartowany na :${TIKA_PORT}"
+else
+  echo "📄 Uruchamiam Tika OCR..."
   docker run -d \
     --name "$TIKA_CONTAINER" \
     -p "${TIKA_PORT}:9998" \
     --restart always \
     apache/tika:latest
-  echo "✅ Tika started on :${TIKA_PORT}"
+  echo "✅ Tika uruchomiony na :${TIKA_PORT}"
 fi
 
-# ── Open WebUI ───────────────────────────────────────────
-if docker ps --format '{{.Names}}' | grep -q "^${WEBUI_CONTAINER}$"; then
-  echo "✅ Open WebUI already running on :${WEBUI_PORT}"
-elif docker ps -a --format '{{.Names}}' | grep -q "^${WEBUI_CONTAINER}$"; then
-  echo "♻️  Restarting Open WebUI..."
-  docker start "$WEBUI_CONTAINER"
-  echo "✅ Open WebUI restarted on :${WEBUI_PORT}"
+# ════════════════════════════════════════════════════════
+# 5. OPEN TERMINAL (file access z chatu)
+# ════════════════════════════════════════════════════════
+if port_in_use 57321; then
+  echo "✅ Open Terminal już działa na :57321"
 else
-  echo "🐳 Starting Open WebUI..."
+  echo "🖥️  Uruchamiam Open Terminal..."
+  open-terminal \
+    --port 57321 \
+    --root "$PROJECTS_DIR" \
+    > "$LOG_DIR/terminal.log" 2>&1 &
+  sleep 3
+  port_in_use 57321 \
+    && echo "✅ Open Terminal gotowy na :57321 (root: $PROJECTS_DIR)" \
+    || echo "⚠️  Open Terminal nie uruchomił się. Sprawdź: tail -f $LOG_DIR/terminal.log"
+fi
+
+# ════════════════════════════════════════════════════════
+# 6. OPENCLAW (autonomous agent)
+# ════════════════════════════════════════════════════════
+if port_in_use $OPENCLAW_PORT; then
+  echo "✅ OpenClaw już działa na :${OPENCLAW_PORT}"
+elif command -v openclaw &>/dev/null; then
+  echo "🦞 Uruchamiam OpenClaw..."
+  openclaw gateway start \
+    > "$LOG_DIR/openclaw.log" 2>&1 &
+  sleep 5
+  port_in_use $OPENCLAW_PORT \
+    && echo "✅ OpenClaw gotowy na :${OPENCLAW_PORT}" \
+    || echo "⚠️  OpenClaw nie uruchomił się. Sprawdź: tail -f $LOG_DIR/openclaw.log"
+else
+  echo "⚠️  OpenClaw nie zainstalowany. Uruchom ./setup.sh"
+fi
+
+# ════════════════════════════════════════════════════════
+# 7. OPEN WEBUI (Docker)
+# ════════════════════════════════════════════════════════
+if docker_running $WEBUI_CONTAINER; then
+  echo "✅ Open WebUI już działa na :${WEBUI_PORT}"
+elif docker_exists $WEBUI_CONTAINER; then
+  echo "♻️  Restartuję Open WebUI..."
+  docker start "$WEBUI_CONTAINER"
+  echo "✅ Open WebUI zrestartowany na :${WEBUI_PORT}"
+else
+  echo "🐳 Uruchamiam Open WebUI..."
   docker run -d \
     -p "${WEBUI_PORT}:8080" \
     --add-host=host.docker.internal:host-gateway \
@@ -103,20 +155,29 @@ else
     -e OPENAI_API_KEY=not-needed \
     -e CONTENT_EXTRACTION_ENGINE=tika \
     -e TIKA_SERVER_URL="http://host.docker.internal:${TIKA_PORT}" \
+    -e WEBUI_WEB_SEARCH_ENGINE=searxng \
+    -e SEARXNG_QUERY_URL="http://host.docker.internal:${SEARXNG_PORT}/search?q=<query>&format=json" \
     -v open-webui-mlx:/app/backend/data \
+    -v "${PROJECTS_DIR}:/app/backend/data/projects:ro" \
     --name "$WEBUI_CONTAINER" \
     --restart always \
     ghcr.io/open-webui/open-webui:main
-  echo "✅ Open WebUI started on :${WEBUI_PORT}"
+  echo "✅ Open WebUI uruchomiony na :${WEBUI_PORT}"
 fi
 
-# ── Summary ──────────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# SUMMARY
+# ════════════════════════════════════════════════════════
 echo ""
-echo "┌──────────────────────────────────────────────────┐"
-echo "│  🌐 Open WebUI    http://localhost:${WEBUI_PORT}         │"
-echo "│  🤖 Gemma-4 Vision http://localhost:${MODEL_PORT}        │"
-echo "│  🎙️  Whisper       http://localhost:${WHISPER_PORT}        │"
-echo "│  📄 Tika OCR      http://localhost:${TIKA_PORT}        │"
-echo "└──────────────────────────────────────────────────┘"
+echo "┌──────────────────────────────────────────────────────┐"
+echo "│  🌐 Open WebUI     http://localhost:${WEBUI_PORT}           │"
+echo "│  👁️  Gemma 4 Vision http://localhost:${MODEL_PORT}          │"
+echo "│  🎙️  Whisper        http://localhost:${WHISPER_PORT}          │"
+echo "│  🔍 SearXNG        http://localhost:${SEARXNG_PORT}          │"
+echo "│  📄 Tika OCR       http://localhost:${TIKA_PORT}          │"
+echo "│  🖥️  Open Terminal  http://localhost:57321             │"
+echo "│  🦞 OpenClaw       http://localhost:${OPENCLAW_PORT}        │"
+echo "└──────────────────────────────────────────────────────┘"
 echo ""
-echo "  Logs: tail -f $LOG_DIR/mlx-server.log"
+echo "  Logi: tail -f $LOG_DIR/gemma.log"
+echo "  Stop: ./stop.sh"

@@ -1,48 +1,44 @@
 #!/bin/zsh
-# stop.sh - stop all services
-# Reentrant: safe to run if any or all services already stopped
+# stop.sh - zatrzymuje wszystkie serwisy
+# Reentrant: bezpieczne gdy serwisy już zatrzymane
 
 source ./config.sh
 
-# ── Helper ───────────────────────────────────────────────
-port_in_use() { lsof -i ":$1" -sTCP:LISTEN &>/dev/null }
+port_in_use()    { lsof -i ":$1" -sTCP:LISTEN &>/dev/null }
+docker_running() { docker ps --format '{{.Names}}' | grep -q "^$1$" }
 
-# ── Open WebUI ───────────────────────────────────────────
-if docker ps --format '{{.Names}}' | grep -q "^${WEBUI_CONTAINER}$"; then
-  echo "🛑 Stopping Open WebUI..."
-  docker stop "$WEBUI_CONTAINER"
-  echo "✅ Open WebUI stopped"
-else
-  echo "✅ Open WebUI already stopped"
-fi
+stop_port() {
+  local name="$1" port="$2"
+  if port_in_use $port; then
+    echo "🛑 Zatrzymuję $name..."
+    lsof -ti ":${port}" | xargs kill -TERM 2>/dev/null
+    sleep 2
+    lsof -ti ":${port}" | xargs kill -9 2>/dev/null
+    echo "✅ $name zatrzymany"
+  else
+    echo "✅ $name już zatrzymany"
+  fi
+}
 
-# ── Tika ─────────────────────────────────────────────────
-if docker ps --format '{{.Names}}' | grep -q "^${TIKA_CONTAINER}$"; then
-  echo "🛑 Stopping Tika..."
-  docker stop "$TIKA_CONTAINER"
-  echo "✅ Tika stopped"
-else
-  echo "✅ Tika already stopped"
-fi
+stop_docker() {
+  local name="$1"
+  if docker_running "$name"; then
+    echo "🛑 Zatrzymuję $name..."
+    docker stop "$name"
+    echo "✅ $name zatrzymany"
+  else
+    echo "✅ $name już zatrzymany"
+  fi
+}
 
-# ── Whisper ──────────────────────────────────────────────
-if port_in_use $WHISPER_PORT; then
-  echo "🛑 Stopping Whisper..."
-  lsof -ti ":${WHISPER_PORT}" | xargs kill -9 2>/dev/null
-  echo "✅ Whisper stopped"
-else
-  echo "✅ Whisper already stopped"
-fi
-
-# ── mlx-openai-server ────────────────────────────────────
-if port_in_use $MODEL_PORT; then
-  echo "🛑 Stopping mlx-openai-server..."
-  lsof -ti ":${MODEL_PORT}" | xargs kill -9 2>/dev/null
-  sleep 2
-  echo "✅ mlx-openai-server stopped"
-else
-  echo "✅ mlx-openai-server already stopped"
-fi
+# Zatrzymuj w odwrotnej kolejności niż start
+stop_docker "$WEBUI_CONTAINER"
+stop_port   "OpenClaw"      $OPENCLAW_PORT
+stop_port   "Open Terminal" 57321
+stop_docker "$TIKA_CONTAINER"
+stop_docker "$SEARXNG_CONTAINER"
+stop_port   "Whisper"       $WHISPER_PORT
+stop_port   "Gemma 4"       $MODEL_PORT
 
 echo ""
-echo "✅ All services stopped"
+echo "✅ Wszystkie serwisy zatrzymane"
