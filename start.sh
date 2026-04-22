@@ -1,5 +1,5 @@
 #!/bin/zsh
-# start.sh - start mlx-openai-server, Whisper, Tika, Open WebUI
+# start.sh - start mlx_vlm.server (Gemma-4 Vision 6-bit) + Whisper + Tika + Open WebUI
 # Reentrant: safe to run if any or all services are already running
 
 source ./config.sh
@@ -15,30 +15,19 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 source "$VENV_DIR/bin/activate"
 
-# ── mlx-openai-server (vision model) ────────────────────
+# ── mlx_vlm.server (Gemma-4 Vision 6-bit) ───────────────
 if port_in_use $MODEL_PORT; then
-  echo "✅ mlx-openai-server already running on :${MODEL_PORT}"
+  echo "✅ mlx_vlm.server already running on :${MODEL_PORT}"
 else
-  echo "🚀 Starting mlx-openai-server..."
+  echo "🚀 Starting mlx_vlm.server (Gemma-4 Vision)..."
   echo "   Model: $MODEL_PATH"
-  echo "   Type:  $MODEL_TYPE"
+  echo "   (6-bit – optimized for M1 Max 64 GB)"
 
-cat > config.yaml << EOF
-server:
-  host: "0.0.0.0"
-  port: ${MODEL_PORT}
-
-models:
-  - model_path: ${MODEL_PATH}
-    model_type: ${MODEL_TYPE}
-    served_model_name: gemma-4-26b-vision
-    reasoning_parser: gemma4
-    tool_call_parser: gemma4
-EOF
-
-  mlx-openai-server launch \
-    --config config.yaml \
-    > "$LOG_DIR/mlx-server.log" 2>&1 &
+  mlx_vlm.server \
+      --model "$MODEL_PATH" \
+      --port "$MODEL_PORT" \
+      --host 0.0.0.0 \
+      > "$LOG_DIR/mlx-server.log" 2>&1 &
 
   echo -n "   Waiting for model server"
   for i in {1..60}; do
@@ -52,14 +41,14 @@ EOF
 
   if ! port_in_use $MODEL_PORT; then
     echo ""
-    echo "❌ mlx-openai-server failed to start."
+    echo "❌ mlx_vlm.server failed to start."
     echo "   Check: tail -f $LOG_DIR/mlx-server.log"
     exit 1
   fi
-  echo "✅ mlx-openai-server ready on :${MODEL_PORT}"
+  echo "✅ mlx_vlm.server ready on :${MODEL_PORT}"
 fi
 
-# ── Whisper server ───────────────────────────────────────
+# ── Whisper server (mlx-openai-server) ───────────────────
 if port_in_use $WHISPER_PORT; then
   echo "✅ Whisper already running on :${WHISPER_PORT}"
 else
@@ -125,7 +114,7 @@ fi
 echo ""
 echo "┌──────────────────────────────────────────────────┐"
 echo "│  🌐 Open WebUI    http://localhost:${WEBUI_PORT}         │"
-echo "│  🤖 MLX server    http://localhost:${MODEL_PORT}        │"
+echo "│  🤖 Gemma-4 Vision http://localhost:${MODEL_PORT}        │"
 echo "│  🎙️  Whisper       http://localhost:${WHISPER_PORT}        │"
 echo "│  📄 Tika OCR      http://localhost:${TIKA_PORT}        │"
 echo "└──────────────────────────────────────────────────┘"

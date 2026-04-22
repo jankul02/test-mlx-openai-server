@@ -4,7 +4,7 @@ server:
 
 models:
   - model_path: mlx-community/gemma-4-26b-a4b-it-6bit
-    model_type: multimodal
+    model_type: vlm
     served_model_name: gemma-4-26b-vision
     reasoning_parser: gemma4
     tool_call_parser: gemma4

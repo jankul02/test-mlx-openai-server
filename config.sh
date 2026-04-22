@@ -3,7 +3,7 @@
 
 # ── Model ───────────────────────────────────────────────
 MODEL_PATH="mlx-community/gemma-4-26b-a4b-it-6bit"
-MODEL_TYPE="multimodal"           # multimodal = vision support via mlx-vlm
+MODEL_TYPE="vlm"           # multimodal = vision support via mlx-vlm
 MODEL_PORT=8090
 
 # ── Whisper (audio transcription) ───────────────────────
