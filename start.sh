@@ -1,5 +1,5 @@
 #!/bin/zsh
-# start.sh - uruchamia wszystkie serwisy
+# start.sh - uruchamia wszystkie serwisy (Gemma-4 Vision + Whisper + SearXNG + Tika + Open WebUI + OpenClaw)
 # Reentrant: bezpieczne gdy serwisy już działają
 
 source ./config.sh
@@ -9,8 +9,7 @@ source "$VENV_DIR/bin/activate" 2>/dev/null || {
   exit 1
 }
 
-port_in_use() { lsof -i ":$1" -sTCP:LISTEN &>/dev/null }
-
+port_in_use()    { lsof -i ":$1" -sTCP:LISTEN &>/dev/null }
 docker_running() { docker ps --format '{{.Names}}' | grep -q "^$1$" }
 docker_exists()  { docker ps -a --format '{{.Names}}' | grep -q "^$1$" }
 
@@ -20,12 +19,14 @@ docker_exists()  { docker ps -a --format '{{.Names}}' | grep -q "^$1$" }
 if port_in_use $MODEL_PORT; then
   echo "✅ Gemma 4 Vision już działa na :${MODEL_PORT}"
 else
-  echo "🚀 Uruchamiam Gemma 4 Vision..."
+  echo "🚀 Uruchamiam Gemma 4 Vision (6-bit)..."
   echo "   Model: $MODEL_PATH"
+
   mlx_vlm.server \
     --model "$MODEL_PATH" \
     --port "$MODEL_PORT" \
     --host 0.0.0.0 \
+    --max-kv-size 32768 \
     > "$LOG_DIR/gemma.log" 2>&1 &
 
   echo -n "   Czekam na gotowość"
@@ -45,7 +46,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════
-# 2. WHISPER (mlx-openai-server)
+# 2. WHISPER
 # ════════════════════════════════════════════════════════
 if port_in_use $WHISPER_PORT; then
   echo "✅ Whisper już działa na :${WHISPER_PORT}"
@@ -64,7 +65,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════
-# 3. SEARXNG (web search — Docker)
+# 3. SEARXNG
 # ════════════════════════════════════════════════════════
 if docker_running $SEARXNG_CONTAINER; then
   echo "✅ SearXNG już działa na :${SEARXNG_PORT}"
@@ -74,8 +75,10 @@ elif docker_exists $SEARXNG_CONTAINER; then
   echo "✅ SearXNG zrestartowany na :${SEARXNG_PORT}"
 else
   echo "🔍 Uruchamiam SearXNG..."
+  mkdir -p "$SEARXNG_CONFIG_DIR"
   docker run -d \
     --name "$SEARXNG_CONTAINER" \
+    -v "${SEARXNG_CONFIG_DIR}:/etc/searxng:rw" \
     -p "${SEARXNG_PORT}:8080" \
     --restart always \
     -e SEARXNG_BASE_URL="http://localhost:${SEARXNG_PORT}" \
@@ -84,7 +87,7 @@ else
 fi
 
 # ════════════════════════════════════════════════════════
-# 4. TIKA OCR (scanned PDFs — Docker)
+# 4. TIKA OCR
 # ════════════════════════════════════════════════════════
 if docker_running $TIKA_CONTAINER; then
   echo "✅ Tika już działa na :${TIKA_PORT}"
@@ -103,15 +106,17 @@ else
 fi
 
 # ════════════════════════════════════════════════════════
-# 5. OPEN TERMINAL (file access z chatu)
+# 5. OPEN TERMINAL
 # ════════════════════════════════════════════════════════
 if port_in_use 57321; then
   echo "✅ Open Terminal już działa na :57321"
 else
   echo "🖥️  Uruchamiam Open Terminal..."
-  open-terminal \
+  .venv/bin/open-terminal run \
     --port 57321 \
-    --root "$PROJECTS_DIR" \
+    --cwd "$PROJECTS_DIR" \
+    --host 127.0.0.1 \
+    --api-key "$OPEN_TERMINAL_API_KEY" \
     > "$LOG_DIR/terminal.log" 2>&1 &
   sleep 3
   port_in_use 57321 \
@@ -120,24 +125,43 @@ else
 fi
 
 # ════════════════════════════════════════════════════════
-# 6. OPENCLAW (autonomous agent)
+# 6. OPENCLAW (autonomiczny agent)
 # ════════════════════════════════════════════════════════
 if port_in_use $OPENCLAW_PORT; then
   echo "✅ OpenClaw już działa na :${OPENCLAW_PORT}"
 elif command -v openclaw &>/dev/null; then
-  echo "🦞 Uruchamiam OpenClaw..."
-  openclaw gateway start \
-    > "$LOG_DIR/openclaw.log" 2>&1 &
-  sleep 5
-  port_in_use $OPENCLAW_PORT \
-    && echo "✅ OpenClaw gotowy na :${OPENCLAW_PORT}" \
-    || echo "⚠️  OpenClaw nie uruchomił się. Sprawdź: tail -f $LOG_DIR/openclaw.log"
+  echo "🦞 Uruchamiam OpenClaw (gateway)..."
+  echo "   Port: $OPENCLAW_PORT"
+
+#  openclaw gateway --port $OPENCLAW_PORT \
+#    > "$LOG_DIR/openclaw.log" 2>&1 &
+
+
+# Wewnątrz start.sh znajdź linię z openclaw i zmień ją na:
+export OPENAI_API_KEY="local-none"
+export OPENAI_BASE_URL="http://127.0.0"
+export OPENAI_API_BASE="http://127.0.0"
+
+openclaw gateway --port 18789 > ./logs/openclaw.log 2>&1 &
+
+
+  sleep 8
+
+  if port_in_use $OPENCLAW_PORT; then
+    echo "✅ OpenClaw gotowy na :${OPENCLAW_PORT}"
+  else
+    echo "❌ OpenClaw nie uruchomił się!"
+    echo "   Logi: tail -f $LOG_DIR/openclaw.log"
+    echo "   Najczęstsze przyczyny:"
+    echo "     • Nie wykonano onboardingu (openclaw onboard)"
+    echo "     • Brak klucza API (odkomentuj OPENCLAW_API_KEY w config.sh)"
+  fi
 else
-  echo "⚠️  OpenClaw nie zainstalowany. Uruchom ./setup.sh"
+  echo "⚠️  OpenClaw nie jest zainstalowany (komenda 'openclaw' nie znaleziona)"
 fi
 
 # ════════════════════════════════════════════════════════
-# 7. OPEN WEBUI (Docker)
+# 7. OPEN WEBUI
 # ════════════════════════════════════════════════════════
 if docker_running $WEBUI_CONTAINER; then
   echo "✅ Open WebUI już działa na :${WEBUI_PORT}"
@@ -150,7 +174,8 @@ else
   docker run -d \
     -p "${WEBUI_PORT}:8080" \
     --add-host=host.docker.internal:host-gateway \
-    -e ENABLE_OLLAMA_API=False \
+    -e ENABLE_OLLAMA_API=True \
+    -e OLLAMA_BASE_URL="" \
     -e OPENAI_API_BASE_URL="http://host.docker.internal:${MODEL_PORT}/v1" \
     -e OPENAI_API_KEY=not-needed \
     -e CONTENT_EXTRACTION_ENGINE=tika \
@@ -179,5 +204,6 @@ echo "│  🖥️  Open Terminal  http://localhost:57321             │"
 echo "│  🦞 OpenClaw       http://localhost:${OPENCLAW_PORT}        │"
 echo "└──────────────────────────────────────────────────────┘"
 echo ""
-echo "  Logi: tail -f $LOG_DIR/gemma.log"
+echo "  Logi Gemma:   tail -f $LOG_DIR/gemma.log"
+echo "  Logi OpenClaw: tail -f $LOG_DIR/openclaw.log"
 echo "  Stop: ./stop.sh"

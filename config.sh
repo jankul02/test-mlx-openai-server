@@ -11,7 +11,7 @@ WHISPER_PATH="mlx-community/whisper-large-v3-mlx"
 WHISPER_PORT=8091
 
 # ── SearXNG (web search) ─────────────────────────────────
-SEARXNG_PORT=8888
+SEARXNG_PORT=8889
 SEARXNG_CONTAINER="searxng"
 
 # ── Tika OCR (scanned PDFs) ──────────────────────────────
@@ -24,9 +24,12 @@ WEBUI_CONTAINER="open-webui-mlx"
 
 # ── OpenClaw (autonomous agent) ──────────────────────────
 OPENCLAW_PORT=18789
-# OPENCLAW_API_KEY="twój-klucz"   # odkomentuj po openclaw onboard
+OPENCLAW_API_KEY="sk-openclaw-local"   # odkomentuj po openclaw onboard
 
 # ── Paths ────────────────────────────────────────────────
 LOG_DIR="./logs"
 VENV_DIR=".venv"
 PROJECTS_DIR="$HOME/projects"     # podmontowany do Open WebUI
+
+# ── SearXNG config path ─────────────────────────────────
+SEARXNG_CONFIG_DIR="$HOME/searxng-config"

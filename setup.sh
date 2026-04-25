@@ -44,11 +44,10 @@ if ! command -v openclaw &>/dev/null; then
   echo "📦 Instaluję OpenClaw..."
   curl -fsSL https://openclaw.ai/install.sh | bash
   echo ""
-  echo "⚠️  Po instalacji uruchom: openclaw onboard"
-  echo "   Skonfiguruje gateway, workspace i API key"
-  echo "   Potem wpisz OPENCLAW_API_KEY w config.sh"
+  echo "⚠️  Po instalacji uruchom:"
+  echo "   openclaw setup"
 else
-  echo "✅ OpenClaw: $(openclaw --version 2>/dev/null || echo 'installed')"
+  echo "✅ OpenClaw: $(openclaw --version 2>/dev/null | head -1)"
 fi
 
 # ── Virtual environment ──────────────────────────────────
@@ -74,11 +73,81 @@ pip install -q open-terminal
 echo "📦 Instaluję huggingface_hub..."
 pip install -q huggingface_hub
 
+# ── Weryfikacja komend ───────────────────────────────────
+echo ""
+echo "🔍 Weryfikacja instalacji..."
+.venv/bin/mlx_vlm.server --help &>/dev/null \
+  && echo "✅ mlx_vlm.server" \
+  || echo "❌ mlx_vlm.server — sprawdź: pip install mlx-vlm"
+
+.venv/bin/mlx-openai-server --help &>/dev/null \
+  && echo "✅ mlx-openai-server" \
+  || echo "❌ mlx-openai-server — sprawdź: pip install mlx-openai-server"
+
+.venv/bin/open-terminal run --help &>/dev/null \
+  && echo "✅ open-terminal" \
+  || echo "❌ open-terminal — sprawdź: pip install open-terminal"
+
+# ── SearXNG config ───────────────────────────────────────
+SEARXNG_CONFIG_DIR="$HOME/searxng-config"
+
+if [[ -f "$SEARXNG_CONFIG_DIR/settings.yml" ]]; then
+  echo "✅ SearXNG config już istnieje ($SEARXNG_CONFIG_DIR)"
+else
+  echo "🔍 Tworzę SearXNG config..."
+  mkdir -p "$SEARXNG_CONFIG_DIR"
+
+  # Generuj losowy secret key
+  SECRET_KEY=$(openssl rand -hex 32)
+
+  cat > "$SEARXNG_CONFIG_DIR/settings.yml" << SEARXNG
+use_default_settings: true
+
+server:
+  secret_key: "${SECRET_KEY}"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+botdetection:
+  ip_limit:
+    enabled: false
+  ip_lists:
+    enabled: false
+
+engines:
+  - name: google
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: github
+    disabled: false
+  - name: stackoverflow
+    disabled: false
+SEARXNG
+
+  echo "✅ SearXNG config zapisany: $SEARXNG_CONFIG_DIR/settings.yml"
+fi
+
+# Zapisz ścieżkę do config.sh jeśli jej tam nie ma
+if ! grep -q "SEARXNG_CONFIG_DIR" config.sh 2>/dev/null; then
+  echo "" >> config.sh
+  echo "# ── SearXNG config path ─────────────────────────────────" >> config.sh
+  echo "SEARXNG_CONFIG_DIR=\"\$HOME/searxng-config\"" >> config.sh
+fi
+
 # ── Pobieranie modeli ────────────────────────────────────
 echo ""
 echo "📥 Sprawdzam modele..."
 
-python3 - <<PYEOF
+.venv/bin/python3 - << PYEOF
 from huggingface_hub import snapshot_download
 import os
 
@@ -99,6 +168,7 @@ PYEOF
 
 # ── Katalogi i gitignore ─────────────────────────────────
 mkdir -p "$LOG_DIR"
+mkdir -p "$PROJECTS_DIR"
 
 for entry in "${VENV_DIR}/" "logs/" "__pycache__/" "*.pyc" ".DS_Store"; do
   grep -qF "$entry" .gitignore 2>/dev/null || echo "$entry" >> .gitignore
@@ -108,6 +178,10 @@ echo ""
 echo "✅ Setup zakończony."
 echo ""
 echo "Następne kroki:"
-echo "  1. openclaw onboard          # jeśli jeszcze nie zrobione"
-echo "  2. Wpisz OPENCLAW_API_KEY w config.sh"
-echo "  3. ./start.sh"
+if ! command -v openclaw &>/dev/null; then
+  echo "  1. Uruchom terminal od nowa (PATH OpenClaw)"
+  echo "  2. openclaw setup"
+fi
+echo "  • Wpisz OPEN_TERMINAL_API_KEY w config.sh"
+echo "    (klucz pojawia się przy pierwszym ./start.sh)"
+echo "  • ./start.sh"
