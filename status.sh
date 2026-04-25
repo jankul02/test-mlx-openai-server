@@ -1,5 +1,5 @@
 #!/bin/zsh
-# status.sh - szybki przegląd statusu wszystkich serwisów
+# status.sh - status wszystkich serwisów
 
 source ./config.sh
 
@@ -8,18 +8,22 @@ docker_running() { docker ps --format '{{.Names}}' | grep -q "^$1$" }
 
 ok()   { echo "  🟢 $1" }
 fail() { echo "  🔴 $1" }
+warn() { echo "  🟡 $1" }
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Status serwisów — $(date '+%H:%M:%S')"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-port_in_use $MODEL_PORT    && ok "Gemma 4 Vision  :${MODEL_PORT}"   || fail "Gemma 4 Vision  :${MODEL_PORT}"
-port_in_use $WHISPER_PORT  && ok "Whisper         :${WHISPER_PORT}"   || fail "Whisper         :${WHISPER_PORT}"
-docker_running $SEARXNG_CONTAINER && ok "SearXNG         :${SEARXNG_PORT}" || fail "SearXNG         :${SEARXNG_PORT}"
-docker_running $TIKA_CONTAINER    && ok "Tika OCR        :${TIKA_PORT}" || fail "Tika OCR        :${TIKA_PORT}"
-port_in_use 57321          && ok "Open Terminal   :57321"             || fail "Open Terminal   :57321"
-port_in_use $OPENCLAW_PORT && ok "OpenClaw        :${OPENCLAW_PORT}" || fail "OpenClaw        :${OPENCLAW_PORT}"
-docker_running $WEBUI_CONTAINER   && ok "Open WebUI      :${WEBUI_PORT}" || fail "Open WebUI      :${WEBUI_PORT}"
+# LM Studio — uruchamiane ręcznie
+if port_in_use $LM_STUDIO_PORT; then
+  ok "LM Studio        :${LM_STUDIO_PORT}"
+else
+  warn "LM Studio        :${LM_STUDIO_PORT}  ← uruchom app ręcznie"
+fi
+
+port_in_use $WHISPER_PORT          && ok "Whisper          :${WHISPER_PORT}" || fail "Whisper          :${WHISPER_PORT}"
+docker_running $SEARXNG_CONTAINER  && ok "SearXNG          :${SEARXNG_PORT}" || fail "SearXNG          :${SEARXNG_PORT}"
+docker_running $TIKA_CONTAINER     && ok "Tika OCR         :${TIKA_PORT}" || fail "Tika OCR         :${TIKA_PORT}"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -32,9 +36,7 @@ free_gb = int(m.group(1)) * 16384 / 1024**3 if m else 0
 print(f'{64 - free_gb:.1f}')
 " 2>/dev/null || echo "?")
 echo "  💾 Pamięć: ~${MEM_USED} GB / 64 GB"
-
-# Ostatni tok/s z loga
-LAST_TOKS=$(grep -o "[0-9.]* tok/s" "$LOG_DIR/gemma.log" 2>/dev/null | tail -1)
-[[ -n "$LAST_TOKS" ]] && echo "  ⚡ Ostatnia prędkość: $LAST_TOKS"
-
 echo ""
+
+echo "  AnythingLLM → http://localhost:${LM_STUDIO_PORT}/v1"
+echo "  SearXNG     → http://localhost:${SEARXNG_PORT}/search?q=<query>&format=json"

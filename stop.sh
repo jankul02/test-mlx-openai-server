@@ -1,6 +1,6 @@
 #!/bin/zsh
-# stop.sh - zatrzymuje wszystkie serwisy
-# Reentrant: bezpieczne gdy serwisy już zatrzymane
+# stop.sh - zatrzymuje serwisy wspierające
+# LM Studio zatrzymuj ręcznie przez app
 
 source ./config.sh
 
@@ -31,14 +31,10 @@ stop_docker() {
   fi
 }
 
-# Zatrzymuj w odwrotnej kolejności niż start
-stop_docker "$WEBUI_CONTAINER"
-stop_port   "OpenClaw"      $OPENCLAW_PORT
-stop_port   "Open Terminal" 57321
 stop_docker "$TIKA_CONTAINER"
 stop_docker "$SEARXNG_CONTAINER"
-stop_port   "Whisper"       $WHISPER_PORT
-stop_port   "Gemma 4"       $MODEL_PORT
+stop_port   "Whisper" $WHISPER_PORT
 
 echo ""
-echo "✅ Wszystkie serwisy zatrzymane"
+echo "✅ Serwisy zatrzymane"
+echo "   LM Studio zatrzymaj ręcznie przez app"
